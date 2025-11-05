@@ -32,15 +32,17 @@ public class RoomNode
     {
         const int minSize = 6;
 
+        // Trop petit pour splitter
         if (size.width <= minSize * 2 && size.height <= minSize * 2)
             return;
 
         bool horizontalSplit;
 
+        // Forcer le sens du split selon les proportions
         if (size.width / (float)size.height >= 1.25f)
-            horizontalSplit = false; 
+            horizontalSplit = false; // Split vertical
         else if (size.height / (float)size.width >= 1.25f)
-            horizontalSplit = true;
+            horizontalSplit = true; // Split horizontal
         else
             horizontalSplit = randomService.Chance(0.5f);
 

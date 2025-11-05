@@ -21,7 +21,7 @@ namespace Components.ProceduralGeneration.SimpleRoomPlacement
         {
             RoomNode roomNode = new RoomNode(RandomService);
 
-            CreatePartition(roomNode, 4);
+            CreatePartition(roomNode, 10);
 
             BuildGround();
         }
