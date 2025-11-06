@@ -12,5 +12,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cf384a042e68f9b409b2de69b485caeb, type: 3}
   m_Name: New Cellular Automata
   m_EditorClassIdentifier: 
+  _maxSteps: 10
+  _noiseDensity: 0.5
   _maxSteps: 5
-  _noiseDensity: 0.8
+  _width: 256
+  _height: 256
+  _useChunkSystem: 1
+  _chunkManagerPrefab: {fileID: 0}
