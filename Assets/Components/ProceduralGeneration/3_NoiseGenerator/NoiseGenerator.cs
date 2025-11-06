@@ -41,6 +41,12 @@ namespace Components.ProceduralGeneration.SimpleRoomPlacement
         [SerializeField, Range(0f, 1f)] private float _grassLevel = 0.7f;
         [SerializeField, Range(0f, 1f)] private float _rockLevel = 0.85f;
 
+        [Header("Height Map Coloring")]
+        [SerializeField] private Gradient _heightGradient;
+        [SerializeField] private float _heightMultiplier = 5f; // ajustable
+        [SerializeField] private AnimationCurve _heightCurve = AnimationCurve.Linear(0, 0, 1, 1);
+
+
         private FastNoiseLite _fnl;
         private CancellationTokenSource _cts;
         private bool _isUpdating;
@@ -89,6 +95,7 @@ namespace Components.ProceduralGeneration.SimpleRoomPlacement
             }
 
             ApplyTilesFromNoise(fullNoise);
+            //CreateHeightMapMesh(fullNoise);
         }
 
         private async UniTask<float[,]> GenerateChunkAsync(int startX, int startY, int sizeX, int sizeY, CancellationToken token)
@@ -123,6 +130,27 @@ namespace Components.ProceduralGeneration.SimpleRoomPlacement
                 }
             }
         }
+        private void CreateHeightMapMesh(float[,] fullNoise)
+        {
+            Color[] colors;
+            Mesh mesh = HeightMapMeshGenerator.GenerateMesh(
+                fullNoise,
+                Grid.CellSize,
+                _heightMultiplier,
+                _heightCurve,
+                out colors,
+                _heightGradient
+            );
+
+            GameObject terrainGO = new GameObject("ProceduralTerrain");
+            MeshFilter mf = terrainGO.AddComponent<MeshFilter>();
+            MeshRenderer mr = terrainGO.AddComponent<MeshRenderer>();
+            mf.mesh = mesh;
+
+            // Shader supportant vertex color
+            mr.material = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+        }
+
 
         private void InitFNL()
         {
