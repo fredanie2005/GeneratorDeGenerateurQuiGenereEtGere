@@ -231,7 +231,7 @@ protected override async UniTask ApplyGeneration(CancellationToken cancellationT
 Chaque case est d’abord définie comme terre ou eau avec 50% de chance.
 Puis on applique plusieurs fois une règle, si une case a 4 voisins ou plus qui sont terre, elle devient terre, sinon elle devient eau.
 
-```
+```C#
 protected override async UniTask ApplyGeneration(CancellationToken cancellationToken)
 {
     _gridState = new Dictionary<Vector2Int, string>();
