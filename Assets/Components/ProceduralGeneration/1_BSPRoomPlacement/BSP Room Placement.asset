@@ -13,6 +13,6 @@ MonoBehaviour:
   m_Name: BSP Room Placement
   m_EditorClassIdentifier: 
   _maxSteps: 1000
-  _maxRooms: 25
+  _maxRooms: 16
   _roomMinSize: {x: 10, y: 10}
   _roomMaxSize: {x: 20, y: 20}

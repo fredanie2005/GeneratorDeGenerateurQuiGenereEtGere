@@ -1,11 +1,11 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 using VTools.Grid;
 using VTools.ScriptableObjectDatabase;
 using VTools.Utility;
+using VTools.RandomService;
 
 namespace Components.ProceduralGeneration.SimpleRoomPlacement
 {
@@ -19,9 +19,16 @@ namespace Components.ProceduralGeneration.SimpleRoomPlacement
 
         protected override async UniTask ApplyGeneration(CancellationToken cancellationToken)
         {
-            RoomNode roomNode = new RoomNode(RandomService);
+            // Root node covers the whole grid
+            var rootRect = new RectInt(0, 0, Grid.Width, Grid.Lenght);
+            RoomNode root = new RoomNode(RandomService, rootRect);
 
-            CreatePartition(roomNode, 10);
+            // Calculate splits from desired max rooms (log2), at least 0
+            int splits = 0;
+            if (_maxRooms > 1)
+                splits = Mathf.Max(0, Mathf.CeilToInt(Mathf.Log(_maxRooms, 2f)));
+
+            CreatePartition(root, splits);
 
             BuildGround();
         }
@@ -64,7 +71,6 @@ namespace Components.ProceduralGeneration.SimpleRoomPlacement
             }
         }
 
-        /// Creates a horizontal corridor from x1 to x2 at the given y coordinate
         private void CreateHorizontalCorridor(int x1, int x2, int y)
         {
             int xMin = Mathf.Min(x1, x2);
@@ -79,7 +85,6 @@ namespace Components.ProceduralGeneration.SimpleRoomPlacement
             }
         }
 
-        /// Creates a vertical corridor from y1 to y2 at the given x coordinate
         private void CreateVerticalCorridor(int y1, int y2, int x)
         {
             int yMin = Mathf.Min(y1, y2);
@@ -116,38 +121,65 @@ namespace Components.ProceduralGeneration.SimpleRoomPlacement
             }
         }
 
-        private void CreatePartition(RoomNode node, int splitNumber)
+        /// <summary>
+        /// Partition the node recursively.
+        /// Returns the center (int) of the room created inside this subtree so parent can connect corridors.
+        /// </summary>
+        private Vector2Int CreatePartition(RoomNode node, int remainingSplits)
         {
-            if (splitNumber == 0)
+            if (node == null)
+                throw new ArgumentNullException(nameof(node));
+
+            // If we reached split depth or node can't split, create a room inside this partition
+            if (remainingSplits <= 0 || !node.CanSplit())
             {
                 RectInt nodeRect = node.size;
-                int marginX = RandomService.Range(2, Mathf.Max(2, nodeRect.width / 4));
-                int marginY = RandomService.Range(2, Mathf.Max(2, nodeRect.height / 4));
-                int newWidth = Mathf.Max(4, nodeRect.width - marginX);
-                int newHeight = Mathf.Max(4, nodeRect.height - marginY);
-                int newX = nodeRect.x + RandomService.Range(0, nodeRect.width - newWidth);
-                int newY = nodeRect.y + RandomService.Range(0, nodeRect.height - newHeight);
 
-                RectInt room = new RectInt(newX, newY, newWidth, newHeight);
+                // compute workable room size clamped to node and min/max sizes
+                int maxW = Mathf.Min(_roomMaxSize.x, nodeRect.width - 2);
+                int maxH = Mathf.Min(_roomMaxSize.y, nodeRect.height - 2);
+                int minW = Mathf.Min(_roomMinSize.x, Mathf.Max(1, nodeRect.width - 2));
+                int minH = Mathf.Min(_roomMinSize.y, Mathf.Max(1, nodeRect.height - 2));
+
+                // If node too small to respect min, fallback to fill
+                if (maxW < 1) maxW = Mathf.Max(1, nodeRect.width - 2);
+                if (maxH < 1) maxH = Mathf.Max(1, nodeRect.height - 2);
+
+                int roomW = RandomService.Range(minW, Mathf.Max(minW, maxW + 1));
+                int roomH = RandomService.Range(minH, Mathf.Max(minH, maxH + 1));
+
+                int roomX = nodeRect.x + RandomService.Range(1, Mathf.Max(1, nodeRect.width - roomW));
+                int roomY = nodeRect.y + RandomService.Range(1, Mathf.Max(1, nodeRect.height - roomH));
+
+                RectInt room = new RectInt(roomX, roomY, roomW, roomH);
                 PlaceRoom(room, ROOM_TILE_NAME);
-                return;
+
+                Vector2 center = room.center;
+                return new Vector2Int(Mathf.RoundToInt(center.x), Mathf.RoundToInt(center.y));
             }
 
-            node.Split();
+            // Try to split
+            bool splitDidCreateChildren = node.Split();
 
-            CreatePartition(node.FirstChild, splitNumber - 1);
-            CreatePartition(node.SecondChild, splitNumber - 1);
+            // if split failed, treat as leaf
+            if (!splitDidCreateChildren || node.FirstChild == null || node.SecondChild == null)
+            {
+                RectInt fallback = node.size;
+                RectInt room = fallback;
+                PlaceRoom(room, ROOM_TILE_NAME);
+                Vector2 center = room.center;
+                return new Vector2Int(Mathf.RoundToInt(center.x), Mathf.RoundToInt(center.y));
+            }
 
-            Vector2 centerA = node.FirstChild.size.center;
-            Vector2 centerB = node.SecondChild.size.center;
+            // Recurse
+            Vector2Int centerA = CreatePartition(node.FirstChild, remainingSplits - 1);
+            Vector2Int centerB = CreatePartition(node.SecondChild, remainingSplits - 1);
 
-            Vector2Int intA = new Vector2Int(Mathf.RoundToInt(centerA.x), Mathf.RoundToInt(centerA.y));
-            Vector2Int intB = new Vector2Int(Mathf.RoundToInt(centerB.x), Mathf.RoundToInt(centerB.y));
+            // Connect the two subtrees with a corridor
+            CreateDogLegCorridor(centerA, centerB);
 
-            CreateDogLegCorridor(intA, intB);
-
+            // return midpoint as representative center
+            return new Vector2Int(Mathf.RoundToInt((centerA.x + centerB.x) * 0.5f), Mathf.RoundToInt((centerA.y + centerB.y) * 0.5f));
         }
-
-
     }
 }
