@@ -130,9 +130,212 @@ La seed est éditable via le Game Object **ProceduralGridGenerator**
 # Différent Algorithme
 
 ## SimpleRoomPlacement
-Simple room placement génère des salles de taille au hazard, et essaie de trouver une place libre pour poser la salle parmis une boucle de recherche de position au hazard
+Génère des salles de tailles aléatoires et essaie de les placer à un emplacement libre. Chaque salle teste plusieurs positions au hasard jusqu’à en trouver une qui ne chevauche rien.
+
+```C#
+protected override async UniTask ApplyGeneration(CancellationToken cancellationToken)
+{
+    // ROOM CREATIONS
+    List<RectInt> placedRooms = new();
+    int roomsPlacedCount = 0;
+    int attempts = 0;
+
+    for (int i = 0; i < _maxSteps; i++)
+    {
+        // Check for cancellation
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (roomsPlacedCount >= _maxRooms)
+        {
+            break;
+        }
+
+        attempts++;
+
+        // choose a random size
+        int width = RandomService.Range(_roomMinSize.x, _roomMaxSize.x + 1);
+        int lenght = RandomService.Range(_roomMinSize.y, _roomMaxSize.y + 1);
+
+        // choose random position so entire room fits into grid
+        int x = RandomService.Range(0, Grid.Width - width);
+        int y = RandomService.Range(0, Grid.Lenght - lenght);
+
+        RectInt newRoom = new RectInt(x, y, width, lenght);
+
+        if (!CanPlaceRoom(newRoom, 1))
+            continue;
+
+        PlaceRoom(newRoom);
+        placedRooms.Add(newRoom);
+
+        roomsPlacedCount++;
+
+        await UniTask.Delay(GridGenerator.StepDelay, cancellationToken: cancellationToken);
+    }
+
+    if (roomsPlacedCount < _maxRooms)
+    {
+        Debug.LogWarning($"RoomPlacer Only placed {roomsPlacedCount}/{_maxRooms} rooms after {attempts} attempts.");
+    }
+
+    if (placedRooms.Count < 2)
+    {
+        Debug.Log("Not enough rooms to connect.");
+        return;
+    }
+
+    // CORRIDOR CREATIONS
+    for (int i = 0; i < placedRooms.Count - 1; i++)
+    {
+        // Check for cancellation
+        cancellationToken.ThrowIfCancellationRequested();
+
+        Vector2Int start = placedRooms[i].GetCenter();
+        Vector2Int end = placedRooms[i + 1].GetCenter();
+
+        CreateDogLegCorridor(start, end);
+
+        await UniTask.Delay(GridGenerator.StepDelay, cancellationToken: cancellationToken);
+    }
+
+    BuildGround();
+}
+```
+
+<img width="488" height="486" alt="Capture d&#39;écran 2025-11-14 172248" src="https://github.com/user-attachments/assets/04cd316c-b386-49d2-b942-dfadfbc13b1d" />
+
 ## BSPRoomPlacement
-Binary Space Partitioning, sépare la map en 
+Le Binary Space Partitioning coupe la map en 2, puis chaque partie est recoupée en 2, et ainsi de suite. Chaque zone obtenue sert ensuite à générer une salle, ce qui garantit qu’elles ne se superposent jamais, et permet de facilement trouver les rooms voisines.
+
+```C#
+protected override async UniTask ApplyGeneration(CancellationToken cancellationToken)
+{
+    // Root node covers the whole grid
+    var rootRect = new RectInt(0, 0, Grid.Width, Grid.Lenght);
+    RoomNode root = new RoomNode(RandomService, rootRect);
+
+    // Calculate splits from desired max rooms (log2), at least 0
+    int splits = 0;
+    if (_maxRooms > 1)
+        splits = Mathf.Max(0, Mathf.CeilToInt(Mathf.Log(_maxRooms, 2f)));
+
+    CreatePartition(root, splits);
+
+    BuildGround();
+}
+```
+
+<img width="485" height="487" alt="Capture d&#39;écran 2025-11-14 173204" src="https://github.com/user-attachments/assets/f3f40b41-c507-4ae0-94ba-e2c019cb4236" />
+
 ## CellularAutomata
+Chaque case est d’abord définie comme terre ou eau avec 50% de chance.
+Puis on applique plusieurs fois une règle, si une case a 4 voisins ou plus qui sont terre, elle devient terre, sinon elle devient eau.
+
+```
+protected override async UniTask ApplyGeneration(CancellationToken cancellationToken)
+{
+    _gridState = new Dictionary<Vector2Int, string>();
+
+    CreateNoiseGrid();
+
+    for (int i = 0; i < _maxSteps; i++)
+    {
+        ApplyAutomataStep();
+    }
+
+    ReplaceTiles();
+}
+
+// -------------------------------------- INIT NOISE ---------------------------------------------
+private void CreateNoiseGrid()
+{
+    for (int x = 0; x < _width; x++)
+    {
+        for (int y = 0; y < _height; y++)
+        {
+            bool isLand = RandomService.Chance(_noiseDensity);
+            _gridState[new Vector2Int(x, y)] = isLand ? GRASS_TILE_NAME : WATER_TILE_NAME;
+        }
+    }
+}
+
+// -------------------------------------- STEP ---------------------------------------------
+private void ApplyAutomataStep()
+{
+    var nextGrid = new Dictionary<Vector2Int, string>();
+
+    for (int x = 0; x < _width; x++)
+    {
+        for (int y = 0; y < _height; y++)
+        {
+            int grassNeighbors = CountNeighbors(x, y, GRASS_TILE_NAME);
+
+            string current = _gridState[new Vector2Int(x, y)];
+
+            // Règle type "Cave generation"
+            if (grassNeighbors > 4)
+                nextGrid[new Vector2Int(x, y)] = GRASS_TILE_NAME;
+            else if (grassNeighbors < 4)
+                nextGrid[new Vector2Int(x, y)] = WATER_TILE_NAME;
+            else
+                nextGrid[new Vector2Int(x, y)] = current;
+        }
+    }
+
+    _gridState = nextGrid;
+}
+```
+
+<img width="488" height="490" alt="Capture d&#39;écran 2025-11-14 172731" src="https://github.com/user-attachments/assets/8cdf4d81-7a20-4350-a085-c93d7b0fc202" />
+
 ## NoiseGeneration
+Chaque case est générée à partir d’un bruit procédural (FastNoiseLite) https://github.com/shniqq/FastNoiseLite-Unity.
+
+```C#
+protected override async UniTask ApplyGeneration(CancellationToken cancellationToken)
+{
+    _fnl = new FastNoiseLite();
+    InitFNL();
+
+    int chunksX = Mathf.CeilToInt((float)_width / _chunkSize);
+    int chunksY = Mathf.CeilToInt((float)_height / _chunkSize);
+
+    var tasks = new UniTask<float[,]>[chunksX * chunksY];
+    int t = 0;
+
+    for (int cx = 0; cx < chunksX; cx++)
+    {
+        for (int cy = 0; cy < chunksY; cy++)
+        {
+            int startX = cx * _chunkSize;
+            int startY = cy * _chunkSize;
+            int sizeX = Mathf.Min(_chunkSize, _width - startX);
+            int sizeY = Mathf.Min(_chunkSize, _height - startY);
+
+            tasks[t++] = GenerateChunkAsync(startX, startY, sizeX, sizeY, cancellationToken);
+        }
+    }
+
+    var results = await UniTask.WhenAll(tasks);
+
+    float[,] fullNoise = new float[_width, _height];
+    int index = 0;
+    for (int cx = 0; cx < chunksX; cx++)
+    {
+        for (int cy = 0; cy < chunksY; cy++)
+        {
+            float[,] chunk = results[index++];
+            int startX = cx * _chunkSize;
+            int startY = cy * _chunkSize;
+
+            for (int x = 0; x < chunk.GetLength(0); x++)
+                for (int y = 0; y < chunk.GetLength(1); y++)
+                    fullNoise[startX + x, startY + y] = chunk[x, y];
+        }
+    }
+
+    ApplyTilesFromNoise(fullNoise);
+}
+```
+<img width="484" height="489" alt="Capture d&#39;écran 2025-11-14 172818" src="https://github.com/user-attachments/assets/baf518ed-42cc-44f4-aec4-b9e1c3cab9e5" />
 
